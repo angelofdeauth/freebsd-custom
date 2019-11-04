@@ -1,0 +1,11 @@
+# FreeBSD {{ igd.latest }} Release Laptop Install
+
+## Prerequisites
+
+Download and `dd` [this iso](https://angelofdeauth.host/FreeBSD-{{ igd.latest }}-RELEASE.iso) to an unmounted USB drive that is at least {{ igd.size }}.
+
+```bash
+dd if=FreeBSD-{{ igd.latest }}-RELEASE.iso of=/dev/sdx bs=1M conv=sync && sync
+```
+
+## Installation

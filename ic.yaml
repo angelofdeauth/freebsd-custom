@@ -1,0 +1,5 @@
+---
+# FreeBSD Latest_RELEASE Laptop Install Guide
+igd:
+  latest: 12
+  size: 4Gi
