@@ -132,6 +132,7 @@ main_user() {
 # main_hardware
 main_hardware() {
 
+
 {{- if .bootstrap.main.hardware.amdgpu -}}
 
   pkg install -y drm-kmod xf86-video-amdgpu
@@ -157,6 +158,7 @@ main_hardware() {
 
 {{- if .bootstrap.main.hardware.intelgpu -}}
 
+
 {{- end -}}
 
 
@@ -165,6 +167,7 @@ main_hardware() {
   sed -i.bak $'55i\nifconfig_DEFAULT="DHCP"\n' /etc/rc.conf
 
 {{- end -}}
+
 
 }
 
