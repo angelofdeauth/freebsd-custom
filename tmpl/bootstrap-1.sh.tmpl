@@ -1,0 +1,10 @@
+{{- define "seed" -}}
+{{ .bootstrap.seed.shell }}
+ASSUME_ALWAYS_YES=yes pkg bootstrap
+pkg install -y {{ range .bootstrap.seed.pkgs }}{{ .name }} {{ end }}
+# fetch -o /root/bootstrap-2.sh {{ .bootstrap.seed.url }}
+chmod +x /root/bootstrap-2.sh
+exec /root/bootstrap-2.sh > /var/log/bootstrap.log
+
+{{ end }}
+{{- template "seed" . }}

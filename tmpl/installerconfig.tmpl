@@ -1,0 +1,38 @@
+{{- define "install" -}}
+disks=$(geom disk list | grep "Geom name: " | cut -d':' -f2 | tr -d ' ')
+main_disk_sz=0
+main_disk_nm=""
+for i in $disks; do
+  i_sz=$(geom disk list | grep "Name: $i" -A 1 | grep "Mediasize: " | cut -f5 -d' ')
+  if [ "$i_sz" -gt "$main_disk_sz" ]; then
+    main_disk_nm="$i"
+  fi
+done
+ram=$(sysctl -n hw.physmem)
+export ZFSBOOT="YES"
+export ZFSBOOT_VDEV_TYPE="stripe"
+export ZFSBOOT_DISKS="$main_disk_nm"
+export ZFSBOOT_POOL_NAME="zroot"
+export ZFSBOOT_SWAP_SIZE="$(expr $ram / 2)"
+export ZFSBOOT_SWAP_ENCRYPTION="YES"
+export ZFSBOOT_GELI_ENCRYPTION="YES"
+export ZFSBOOT_GELI_PW_PASSWORD="password"
+MIRROR="ftp://{{ .bootstrap.mirror }}"
+RELEASE="{{ .bootstrap.release }}"
+DISTRIBUTIONS="{{ range .bootstrap.install.dist }}{{.name}}.txz {{ end }}{{ range .bootstrap.main.repos }}{{.name}}.txz {{ end }}"
+HOSTNAME="{{ .bootstrap.hostname }}"
+TIMEZONE="{{ .bootstrap.install.timezone }}"
+ROOTPWHASH='{{ .bootstrap.install.rootpw }}'
+USERCONFIG="{{ .bootstrap.install.user }}"
+
+{{ .bootstrap.install.shell }}
+touch /root/bootstrap-1.sh
+chmod +x /root/bootstrap-1.sh
+printf '{{ readFile "tmpl/bootstrap-1.sh.tmpl" | render | replace "\n" "\\n" }}' > /root/bootstrap-1.sh
+printf '%s' $'{{ readFile "tmpl/bootstrap-2.sh.tmpl" | render | replace "\\" "\\\\" | replace "'" "\\'" | replace "\n" "\\n" }}' > /root/bootstrap-2.sh
+echo '@reboot root:wheel /root/bootstrap-1.sh > /var/log/bootstrap.log' >> /etc/crontab
+echo 'ifconfig_DEFAULT="DHCP"' >> /etc/rc.conf
+poweroff
+
+{{ end }}
+{{- template "install" . }}

@@ -1,0 +1,2 @@
+change mkimg.sh image resizer to estimate and use added size before resizing image so as to not add unneeded space to image
+change mkimg.sh tarball generation to check if distribution repos have been changed relative to existing tarball so as to avoid doing this unnecessarily

@@ -1,0 +1,46 @@
+# FreeBSD image builder configuration file
+
+bootstrap:
+  arch: "amd64"
+  github_user: "angelofdeauth"
+  hostname: "wtd-rh"
+  mirror: "ftp.freebsd.org"
+  release: "12.1"
+  branch: "RELEASE"
+  install:
+    dist:
+    - name: "base"
+    - name: "kernel"
+    - name: "kernel-dbg"
+    - name: "lib32"
+    - name: "ports"
+    - name: "src"
+    - name: "tests"
+    rootpw: '$6$dHTZciLDHbhw/SJL$z2uVpJ5Y3drnd2GXgGNkx6IsIvvemcrOfiVHj6YUnRqtAw5kbf3.5Yxax8RjRs5Icp6TO.Gp5U9EOKqxvi1tc1'
+    shell: "#!/bin/sh"
+    timezone: ""
+    user: ""
+  main:
+    hardware:
+      amdgpu: ""
+      amdgpu_beta: ""
+      intelgpu: "true"
+      default_dhcp: "true"
+    repos:
+    - name: "freebsd-custom"
+    - name: "dwm"
+    - name: "sdwmbar"
+    - name: "slock"
+    - name: "st"
+    - name: "dotfiles"
+    shell: "#!/usr/bin/env bash"
+  seed:
+    pkgs:
+    - name: "bash"
+    - name: "curl"
+    - name: "vim"
+    - name: "git"
+    - name: "svnup"
+    shell: "#!/bin/sh"
+    # url: "aod.sh/freebsd"
+    url: ""

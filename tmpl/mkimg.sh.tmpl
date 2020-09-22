@@ -1,0 +1,190 @@
+{{- define "mkimg" -}}
+#!/usr/bin/env bash
+
+if [[ -n "$TRACE" ]]; then
+  export PS4='[\D{%FT%TZ}] ${BASH_SOURCE}:${LINENO}: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+  set -o xtrace
+fi
+
+set -euo pipefail
+
+RELEASE="{{ .bootstrap.release }}"
+BRANCH="{{ .bootstrap.branch }}"
+ARCH="{{ .bootstrap.arch }}"
+CUSTOM_ISO_TXZ_REPOS=( {{ range .bootstrap.main.repos }}{{"\""}}{{ .name }}{{"\""}} {{ end }}) 
+GITHUB_USER="{{ .bootstrap.github_user }}"
+MIRROR="{{ .bootstrap.mirror }}"
+MIRROR_PATH="pub/FreeBSD/releases/ISO-IMAGES"
+ISO="FreeBSD-${RELEASE}-${BRANCH}-${ARCH}-memstick.img"
+CUSTOM_IMG="fbsd-${RELEASE}-${BRANCH}-${ARCH}-memstick-custom.img"
+ISO_DIR="$(pwd)/freebsd-iso"
+ISO_MOUNT="/mnt/freebsd-iso"
+SHA256SUM="CHECKSUM.SHA256-FreeBSD-${RELEASE}-${BRANCH}-${ARCH}"
+TXZ_REPOS_DIR="txz_repos"
+INSTALLER_CFG="installerconfig"
+MD_NUM="11"
+RNDR_DIR=".rendered"
+
+# remove memory device
+trap "mdconfig -d -u ${MD_NUM}" SIGHUP SIGINT SIGKILL SIGTERM
+# Unmount image
+trap "umount $ISO_MOUNT" SIGHUP SIGINT SIGKILL SIGTERM 
+
+function clean_layout() {
+  if [[ $(df | grep $ISO_MOUNT) ]]; then
+    echo "==> Unmounting previous $ISO_MOUNT..."
+    umount "${ISO_MOUNT}"
+  fi
+  if $(mdconfig -l | grep -q "${MD_NUM}"); then
+    echo "==> Deleting previous memory device..."
+    mdconfig -d -u "${MD_NUM}"
+  fi
+
+}
+
+function fetch_iso() {
+  if [[ ! -d $ISO_DIR ]]; then
+    mkdir -p $ISO_DIR
+  fi
+
+  echo "==> Fetching ${SHA256SUM}"
+  curl -sS -o ${ISO_DIR}/${SHA256SUM} ftp://${MIRROR}/${MIRROR_PATH}/${RELEASE}/${SHA256SUM} || true
+
+  echo "==> Checking for local copy of $ISO..."
+  if [[ -e $ISO_DIR/$ISO ]]; then
+    echo "==> Found local copy of $ISO"
+
+  else
+      echo "==> Local copy not found."
+      echo "==> Fetching ISO from $MIRROR..."
+      curl -o ${ISO_DIR}/${ISO} ftp://${MIRROR}/${MIRROR_PATH}/${RELEASE}/${ISO} || true
+      echo "==> Done!"
+      echo "==> ${ISO} saved to $ISO_DIR/"
+
+      echo "==> Verifying $ISO with ${SHA256SUM}"
+
+      if [[ "$(sha256 $ISO_DIR/$ISO | cut -f2 -d= | tr -d '[[:space:]]')" == "$(grep "($ISO)" $ISO_DIR/${SHA256SUM} | cut -f2 -d= | tr -d '[[:space:]]')" ]]; then
+          echo "==> Checksums match."
+      else
+          echo "==> Checksums don't match!"
+          exit 1
+      fi
+  fi
+}
+
+function create_layout() {
+  echo "==> Creating custom ISO Layout"
+  
+  echo "==> Creating $ISO_MOUNT"
+  mkdir -p $ISO_MOUNT
+
+  cp "${ISO_DIR}"/"${ISO}" "${ISO_DIR}"/"${CUSTOM_IMG}"
+  truncate -s +1G "${ISO_DIR}"/"${CUSTOM_IMG}"
+  mdconfig -a -t vnode -u "${MD_NUM}" -f "${ISO_DIR}"/"${CUSTOM_IMG}"
+  gpart resize -i 2 md"${MD_NUM}"
+  gpart resize -i 1 md"${MD_NUM}"s2
+  growfs -y /dev/md"${MD_NUM}"s2a
+  
+  echo "==> Mounting $ISO to $ISO_MOUNT"
+  mount -t ufs /dev/md"${MD_NUM}"s2a "${ISO_MOUNT}"
+
+  mkdir -p ${TXZ_REPOS_DIR}
+  cd ${TXZ_REPOS_DIR}
+  for i in "${CUSTOM_ISO_TXZ_REPOS[@]}"; do
+    echo "==> Copying txz repo $i to $ISO_MOUNT:"
+    echo "===> Getting repo: $i..."
+    if [ ! -d "${i}"/"${i}" ]; then
+      git clone https://github.com/$GITHUB_USER/$i 
+      mkdir tmp
+      mv "${i}" tmp/"${i}"
+      mv tmp "${i}"
+    else
+      ( cd "${i}"/"${i}"
+        git pull || true
+	cd ../../
+      )
+    fi
+    integrate_txz_distribution $i
+  done
+  cd ../
+
+  echo "==> Copying $INSTALLER_CFG to $ISO_MOUNT"
+  cp "${RNDR_DIR}/${INSTALLER_CFG}" "${ISO_MOUNT}"/etc/
+  
+  echo "==> Unmounting $ISO_MOUNT"
+  umount $ISO_MOUNT
+
+}
+
+function integrate_txz_distribution() {
+  echo "==> Integrating txz distribution $1"
+
+  [[ -f "${ISO_MOUNT}"/usr/freebsd-dist/"${1}".txz ]] && rm "${ISO_MOUNT}"/usr/freebsd-dist/"${1}".txz
+
+  cd "${1}"
+  echo $(pwd)
+  echo $(ls)
+  echo $(ls ${1}/)
+  if [ -f "${1}".txz ]; then
+    tar -xvf "${1}".txz .sha256sum
+    cat .sha256sum
+    cd "${1}"
+    echo $( sha256 -q ./ )
+    echo "Comparing sums"
+    if [ "$( sha256 -q ./ )" = "$( cat ../.sha256sum )" ]; then
+      echo "Compared the same"
+      cd ../
+      rm -f .sha256sum
+      cp "${1}".txz "${ISO_MOUNT}"/usr/freebsd-dist/"${1}".txz
+      cd ../
+      return 0
+    else
+      echo "Compared different"
+      rm -f ../.sha256sum
+      rm -f "${1}".txz
+    fi
+    cd ../
+  fi
+  mkdir -p "${1}"_txz
+  dir=""
+  if [ -f "${1}"/.bsdiso ]; then
+    dir=$(cat "${1}"/.bsdiso)
+  else
+    dir=root/preinstall
+  fi
+  mkdir -p "${1}"_txz/"${dir}"
+  cp -R ${1} "${1}"_txz/"${dir}"/"${1}"
+  cd "${1}"_txz
+  ret=$(pwd)
+  cd "${dir}"/"${1}"
+  sha256 -q ./ > "${ret}"/.sha256sum
+  cd "${ret}"
+  ( tar -cvJpf ../${1}.txz ./ )
+
+  cd ../
+  rm -rf "${1}"_txz
+  DISTFILE_SHASUM_STDOUT=$(shasum -a 256 "${1}".txz)
+  DISTFILE_SHASUM_PLAIN=${DISTFILE_SHASUM_STDOUT% *}
+  DISTFILE_FILECOUNT=$(tar -tf $1.txz | wc -l | tr -d ' ')
+
+  echo -e "${1}.txz\t${DISTFILE_SHASUM_PLAIN}\t${DISTFILE_FILECOUNT}\t${1}\t\"Angelofdeauth\"\ton" >> "${ISO_MOUNT}"/usr/freebsd-dist/MANIFEST
+
+  cp $1.txz ${ISO_MOUNT}/usr/freebsd-dist/${1}.txz
+  cd ../
+}
+
+main() {
+  
+  echo "==> ISO Build Starting!"
+  clean_layout
+  fetch_iso
+  create_layout
+  clean_layout
+
+}
+
+main
+
+{{ end }}
+{{- template "mkimg" . }}
+

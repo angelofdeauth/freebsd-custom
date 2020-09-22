@@ -1,0 +1,197 @@
+{{- define "main" -}}
+{{ .bootstrap.main.shell }}
+
+# FreeBSD init script
+
+# repository definition
+repolist=( {{ range .bootstrap.main.repos }}{{.name}} {{ end }})
+
+# crontab modifications
+main_cron() {
+
+  # remove bootstrap 1 from crontab
+  sed -i.bak '/bootstrap-1.sh/d' /etc/crontab
+  
+  # write daily base system update check to crontab
+  if ! grep -q freebsd-update "/etc/crontab"; then
+    echo "@daily root freebsd-update -t root cron" >> /etc/crontab
+  fi
+
+}
+
+# dotfiles setup
+main_dotfiles() {
+
+  cp -R dotfiles /usr/share/skel/
+
+}
+
+# dwm setup
+main_dwm() {
+  
+  # dwm
+  cd dwm
+
+  make clean install 
+
+  cd ../
+
+}
+
+# freebsd-custom setup
+main_freebsd-custom() {
+
+  # freebsd-custom
+  cd freebsd-custom
+  
+  # Copy custom configuration to dirs
+  cp -R zroot/ /
+  
+  # install packages
+  for i in $(cat packages.txt); do
+    echo "Installing: $i"
+    pkg install -y $i
+    echo "Exit code: $?"
+    echo ""
+  done
+  
+  cd ../
+
+}
+
+# sdwmbar setup
+main_sdwmbar() {
+  
+  # sdwmbar
+  cd sdwmbar
+
+  make clean all install
+
+  cd ../
+
+}
+
+# slock
+main_slock() {
+  
+  # slock
+  cd slock
+
+  make clean install
+
+  cd ../
+
+}
+
+# st
+main_st() {
+  
+  # st
+  cd st
+  
+  make clean install
+
+  cd ../
+
+}
+
+# main_preinstall
+# kickoff functions for the various preinstalled repos
+main_preinstall() {
+  
+  # cd to bootstrap dir
+  cd preinstall
+  
+  main_freebsd-custom
+  main_dotfiles
+  main_dwm
+  main_sdwmbar
+  main_slock
+  main_st
+  
+  cd ../
+}
+
+# main_user
+main_user() {
+
+  echo "aescaler::::::AJ Escalera::/usr/local/bin/fish:changeme" | adduser -f -
+  pw usermod aescaler -G aescaler,wheel,staff,video
+
+  cd /usr/home/aescaler/dotfiles
+  for i in */; do
+    stow $i
+  done
+  cd ../
+  mv .xprofile .xinitrc
+  chown -h -R aescaler:aescaler ./
+  cd
+
+}
+
+# main_hardware
+main_hardware() {
+
+{{- if .bootstrap.main.hardware.amdgpu -}}
+
+  pkg install -y drm-kmod xf86-video-amdgpu
+  
+  sed -i.bak 's/i915kms/amdgpu/' /etc/rc.conf
+
+  printf "\nhw.syscons.disable=\"1\"\n" >> /boot/loader.conf
+
+{{- end -}}
+
+
+{{- if .bootstrap.main.hardware.amdgpu_beta -}}
+
+  fetch "https://github.com/FreeBSDDesktop/kms-drm/archive/drm-v5.0-fbsd12.1.zip"
+  unzip "drm-v5.0-fbsd12.1.zip"
+  cd "kms-drm-drm-v5.0-fbsd12.1"
+  make
+  make install
+  cd ../
+
+{{- end -}}
+
+
+{{- if .bootstrap.main.hardware.intelgpu -}}
+
+{{- end -}}
+
+
+{{- if .bootstrap.main.hardware.default_dhcp -}}
+
+  sed -i.bak $'55i\nifconfig_DEFAULT="DHCP"\n' /etc/rc.conf
+
+{{- end -}}
+
+}
+
+# cleanup procedure
+cleanup() {
+
+  echo "Cleaning up bootstrap..."
+  
+  # update base system and reboot
+  echo "Updating base system..."
+  freebsd-update fetch install
+  poweroff
+
+}
+
+main() {
+
+  main_cron
+  main_preinstall
+  main_user
+  main_hardware
+  cleanup
+
+}
+
+main
+
+{{ end }}
+{{- template "main" . }}
+
